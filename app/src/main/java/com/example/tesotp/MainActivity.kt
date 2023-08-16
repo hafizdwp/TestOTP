@@ -1,20 +1,26 @@
 package com.example.tesotp
 
+import android.app.Dialog
+import android.app.ProgressDialog
+import android.content.DialogInterface
 import android.os.Bundle
-import com.google.android.material.snackbar.Snackbar
+import android.util.Log
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.navigation.findNavController
-import androidx.navigation.ui.AppBarConfiguration
-import androidx.navigation.ui.navigateUp
-import androidx.navigation.ui.setupActionBarWithNavController
-import android.view.Menu
-import android.view.MenuItem
 import com.example.tesotp.databinding.ActivityMainBinding
+import com.google.firebase.FirebaseException
+import com.google.firebase.auth.*
+import dmax.dialog.SpotsDialog
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var appBarConfiguration: AppBarConfiguration
     private lateinit var binding: ActivityMainBinding
+
+    lateinit var auth: FirebaseAuth
+    lateinit var user: FirebaseUser
+    var otpCode = ""
+    lateinit var loadingDialog: Dialog
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,35 +30,102 @@ class MainActivity : AppCompatActivity() {
 
         setSupportActionBar(binding.toolbar)
 
-        val navController = findNavController(R.id.nav_host_fragment_content_main)
-        appBarConfiguration = AppBarConfiguration(navController.graph)
-        setupActionBarWithNavController(navController, appBarConfiguration)
+        // otp
+        auth = FirebaseAuth.getInstance()
 
-        binding.fab.setOnClickListener { view ->
-            Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                    .setAction("Action", null).show()
+        // login
+        loginFirebase()
+
+        // views
+        loadingDialog = SpotsDialog.Builder()
+                .setContext(this)
+                .setMessage("Loading")
+                .build()
+
+        binding.btnGenerateOtp.setOnClickListener { generateOtp() }
+        binding.btnSubmitOtp.setOnClickListener { submitOtp() }
+    }
+
+    private fun generateOtp() {
+        loadingDialog.show()
+
+        var phoneNumber = binding.etPhone.text.toString()
+        phoneNumber = "+${phoneNumber}"
+
+        var verificationId = ""
+        val options = PhoneAuthOptions.newBuilder(auth)
+                .setPhoneNumber(phoneNumber)
+                .setTimeout(30L, TimeUnit.SECONDS)
+                .setActivity(this)
+                .setCallbacks(object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+                    override fun onCodeSent(p0: String, p1: PhoneAuthProvider.ForceResendingToken) {
+                        super.onCodeSent(p0, p1)
+                        log("code sent!")
+                        verificationId = p0
+                        log("verificationId: $verificationId")
+                    }
+
+                    override fun onVerificationCompleted(p0: PhoneAuthCredential) {
+                        log("verification COMPLETE!")
+                        log("SMS CODE: ${p0.smsCode}")
+
+                        otpCode = p0.smsCode ?: ""
+
+                        signInWithPhone(p0)
+                        loadingDialog.dismiss()
+                    }
+
+                    override fun onVerificationFailed(p0: FirebaseException) {
+                        log("verification FAILED: ${p0.message}")
+                        loadingDialog.dismiss()
+                    }
+                })
+                .build()
+
+        PhoneAuthProvider.verifyPhoneNumber(options)
+    }
+
+    private fun submitOtp() {
+        val inputOtpCode = binding.etOtp.text.toString()
+        val isOtpValid = inputOtpCode == otpCode
+        val message = if(isOtpValid) "Congratulations! your phone number is CONFIRMED"
+        else "Your OTP number is wrong, please input correct phone number and try again"
+
+        AlertDialog.Builder(this)
+                .setTitle("Confirmation")
+                .setMessage(message)
+                .setPositiveButton("OK") { dialog, _ -> dialog?.dismiss() }
+                .create()
+                .show()
+    }
+
+    private fun signInWithPhone(credential: PhoneAuthCredential) {
+        auth.signInWithCredential(credential)
+                .addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        log("LOGIN WITH PHONE NUMBER === SUCCESS!")
+                        log(task.result.toString())
+                    }
+                }
+    }
+
+
+    private fun loginFirebase() {
+        log("login")
+
+        auth.createUserWithEmailAndPassword(
+                "hafizdwp@gmail.com", "159357"
+        ).addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                log("createUser success!")
+                user = auth.currentUser!!
+            } else {
+                log("createUser failed")
+            }
         }
     }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        menuInflater.inflate(R.menu.menu_main, menu)
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        return when (item.itemId) {
-            R.id.action_settings -> true
-            else -> super.onOptionsItemSelected(item)
-        }
-    }
-
-    override fun onSupportNavigateUp(): Boolean {
-        val navController = findNavController(R.id.nav_host_fragment_content_main)
-        return navController.navigateUp(appBarConfiguration)
-                || super.onSupportNavigateUp()
+    private fun log(m: String) {
+        Log.d("mytag", m)
     }
 }
